@@ -1,0 +1,30 @@
+import { Router } from 'express';
+import authRoutes from '../src/auth/auth.routes.js';
+import userRoutes from '../src/users/user.routes.js';
+import medicationRoutes from '../src/medications/medication.routes.js';
+import doseLogRoutes from '../src/doseLogs/doseLog.routes.js';
+import adherenceRoutes from '../src/adherence/adherence.routes.js';
+import alertRoutes from '../src/features/alerts/alert.routes.js';
+import caregiverRoutes from '../src/features/caregiver/caregiver.routes.js';
+import notificationRoutes from '../src/features/notifications/notification.routes.js';
+import aiRoutes from '../src/features/ai/ai.routes.js';
+import reportRoutes from '../src/features/reports/report.routes.js';
+import adminRoutes from '../src/admin/admin.routes.js';
+
+const router = Router();
+
+router.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+
+router.use('/auth', authRoutes);
+router.use('/users', userRoutes);
+router.use('/medications', medicationRoutes);
+router.use('/dose-logs', doseLogRoutes);
+router.use('/adherence', adherenceRoutes);
+router.use('/alerts', alertRoutes);
+router.use('/caregiver', caregiverRoutes);
+router.use('/notifications', notificationRoutes);
+router.use('/ai', aiRoutes);
+router.use('/reports', reportRoutes);
+router.use('/admin', adminRoutes);
+
+export default router;

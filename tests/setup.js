@@ -1,17 +1,10 @@
 import mongoose from 'mongoose';
 
-beforeAll(async () => {
+export default async function globalSetup() {
   await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/medai_test');
-});
+}
 
-afterAll(async () => {
+export async function globalTeardown() {
   await mongoose.connection.dropDatabase();
   await mongoose.disconnect();
-});
-
-afterEach(async () => {
-  const collections = mongoose.connection.collections;
-  for (const key in collections) {
-    await collections[key].deleteMany({});
-  }
-});
+}

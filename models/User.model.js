@@ -10,6 +10,15 @@ const notificationPrefsSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const emergencyContactSchema = new mongoose.Schema(
+  {
+    name: { type: String },
+    phone: { type: String },
+    relationship: { type: String },
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema(
   {
     email: { type: String, required: true, unique: true, lowercase: true, index: true },
@@ -26,6 +35,14 @@ const userSchema = new mongoose.Schema(
     googleId: { type: String },
     fcmToken: { type: String },
     notificationPrefs: { type: notificationPrefsSchema, default: () => ({}) },
+    address: { type: String },
+    relationship: { type: String },
+    // Patient-specific fields
+    age: { type: Number },
+    gender: { type: String, enum: ['male', 'female', 'other'] },
+    conditions: { type: [String], default: [] },
+    emergencyContact: { type: emergencyContactSchema },
+    createdByDoctor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   },
   { timestamps: true }
 );

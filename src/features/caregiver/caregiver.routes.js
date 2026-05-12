@@ -10,8 +10,7 @@ router.use(verifyToken);
 
 router.get('/patients', requireRole('caregiver', 'doctor', 'admin'), caregiverController.listPatients);
 router.get('/patients/:id/summary', requireRole('caregiver', 'doctor', 'admin'), caregiverController.getPatientSummary);
-router.post('/invite/:patientEmail', auditMiddleware, requireRole('caregiver', 'doctor'), caregiverController.invitePatient);
-router.patch('/invite/:id/accept', auditMiddleware, requireRole('patient'), caregiverController.acceptInvite);
+router.get('/patients/:patientId/notes', requireRole('caregiver', 'doctor', 'admin'), caregiverController.getPatientNotes);
 router.post('/patients/:id/notes', auditMiddleware, requireRole('caregiver', 'doctor'), validateNote, caregiverController.addNote);
 
 export default router;

@@ -18,6 +18,12 @@ const alertSchema = new mongoose.Schema(
       enum: ['missed_dose', 'high_risk', 'delay', 'anomaly'],
       required: true,
     },
+    severity: {
+      type: String,
+      enum: ['low', 'medium', 'high', 'critical'],
+      default: 'medium',
+      index: true,
+    },
     message: { type: String, required: true },
     sentTo: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     channels: [{ type: String }],
@@ -52,6 +58,7 @@ const alertSchema = new mongoose.Schema(
 );
 
 alertSchema.index({ patientId: 1, status: 1 });
+alertSchema.index({ patientId: 1, status: 1, severity: 1 });
 alertSchema.index({ status: 1, createdAt: -1 });
 
 export default mongoose.model('Alert', alertSchema);

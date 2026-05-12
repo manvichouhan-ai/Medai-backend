@@ -20,13 +20,17 @@ async function validateCaregiverPatientAccess(caregiverId, patientId) {
   return link;
 }
 
-export async function assistDose(logId, caregiverId, data) {
+export async function assistDose(logId, caregiverId, data, callerRole) {
   const log = await DoseLog.findById(logId).populate('medicationId', 'name');
   if (!log) {
     throw Object.assign(new Error('Dose log not found'), { statusCode: 404 });
   }
 
-  if (log.status !== 'pending') {
+  if (callerRole !== 'caregiver') {
+    throw Object.assign(new Error('Missed doses must be assisted by your caregiver'), { statusCode: 403 });
+  }
+
+  if (log.status !== 'pending' && log.status !== 'missed') {
     throw Object.assign(new Error('Dose has already been actioned'), { statusCode: 400 });
   }
 

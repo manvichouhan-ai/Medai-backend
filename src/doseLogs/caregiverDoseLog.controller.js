@@ -3,7 +3,7 @@ import { sendSuccess } from '../utils/response.utils.js';
 
 export async function assistDose(req, res, next) {
   try {
-    const log = await caregiverDoseLogService.assistDose(req.params.id, req.user._id, req.body);
+    const log = await caregiverDoseLogService.assistDose(req.params.id, req.user._id, req.body, req.user.role);
     return sendSuccess(res, { log });
   } catch (err) {
     next(err);

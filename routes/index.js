@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import authRoutes from '../src/auth/auth.routes.js';
 import userRoutes from '../src/users/user.routes.js';
-import medicationRoutes from '../src/medications/medication.routes.js';
+import medicationRoutes from '../src/medications/medication.routes.js'; // RE-ENABLED for /medications/today endpoint
 import medicationRequestRoutes from '../src/medicationRequests/medicationRequest.routes.js';
 import doseLogRoutes from '../src/doseLogs/doseLog.routes.js';
 import adherenceRoutes from '../src/adherence/adherence.routes.js';
@@ -20,7 +20,7 @@ router.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Dat
 
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
-router.use('/medications', medicationRoutes);
+router.use('/medications', medicationRoutes); // RE-ENABLED - only contains /medications/today endpoint
 router.use('/medication-requests', medicationRequestRoutes);
 router.use('/dose-logs', doseLogRoutes);
 router.use('/adherence', adherenceRoutes);

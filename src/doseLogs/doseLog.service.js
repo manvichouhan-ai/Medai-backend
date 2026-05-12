@@ -1,12 +1,39 @@
 import DoseLog from '../../models/DoseLog.model.js';
+import CaregiverPatient from '../../models/CaregiverPatient.model.js';
 import { dispatchAlert } from '../features/notifications/notification.service.js';
 import { logger } from '../utils/logger.js';
 
 const DELAY_THRESHOLD_MINUTES = 30;
 
-export async function takeDose(logId, patientId, notes) {
-  const log = await DoseLog.findOne({ _id: logId, patientId, status: 'pending' });
-  if (!log) throw Object.assign(new Error('Dose log not found or already actioned'), { statusCode: 404 });
+async function validateCaregiverPatientAccess(caregiverId, patientId) {
+  const link = await CaregiverPatient.findOne({
+    caregiverId,
+    patientId,
+    status: 'active',
+  });
+  if (!link) {
+    throw Object.assign(new Error('Not authorized to access this patient'), { statusCode: 403 });
+  }
+  return link;
+}
+
+export async function takeDose(logId, userId, notes, role = 'patient') {
+  const log = await DoseLog.findById(logId);
+  if (!log) throw Object.assign(new Error('Dose log not found'), { statusCode: 404 });
+
+  if (log.status === 'missed') {
+    throw Object.assign(new Error('This dose was missed. Please contact your caregiver to assist.'), { statusCode: 403 });
+  }
+
+  if (log.status !== 'pending') {
+    throw Object.assign(new Error('Dose has already been actioned'), { statusCode: 400 });
+  }
+
+  if (role === 'caregiver') {
+    await validateCaregiverPatientAccess(userId, log.patientId);
+  } else if (role === 'patient' && log.patientId.toString() !== userId.toString()) {
+    throw Object.assign(new Error('Not authorized to mark this dose'), { statusCode: 403 });
+  }
 
   const takenAt = new Date();
   const delayMinutes = Math.round((takenAt - log.scheduledTime) / 60000);
@@ -15,12 +42,14 @@ export async function takeDose(logId, patientId, notes) {
   log.takenAt = takenAt;
   log.delayMinutes = Math.max(0, delayMinutes);
   log.status = status;
+  log.takenBy = userId;
+  log.takenByRole = role;
   if (notes) log.notes = notes;
   await log.save();
 
   if (status === 'delayed') {
     await dispatchAlert(
-      patientId,
+      log.patientId,
       'delay',
       `Medication was taken ${delayMinutes} minutes late`,
       'system'
@@ -30,12 +59,24 @@ export async function takeDose(logId, patientId, notes) {
   return log;
 }
 
-export async function skipDose(logId, patientId, notes) {
-  const log = await DoseLog.findOne({ _id: logId, patientId, status: 'pending' });
-  if (!log) throw Object.assign(new Error('Dose log not found or already actioned'), { statusCode: 404 });
+export async function skipDose(logId, userId, notes, role = 'patient') {
+  const log = await DoseLog.findById(logId);
+  if (!log) throw Object.assign(new Error('Dose log not found'), { statusCode: 404 });
+
+  if (log.status !== 'pending') {
+    throw Object.assign(new Error('Dose has already been actioned'), { statusCode: 400 });
+  }
+
+  if (role === 'caregiver') {
+    await validateCaregiverPatientAccess(userId, log.patientId);
+  } else if (role === 'patient' && log.patientId.toString() !== userId.toString()) {
+    throw Object.assign(new Error('Not authorized to mark this dose'), { statusCode: 403 });
+  }
 
   log.status = 'missed';
-  log.notes = notes;
+  log.takenBy = userId;
+  log.takenByRole = role;
+  if (notes) log.notes = notes;
   await log.save();
 
   return log;

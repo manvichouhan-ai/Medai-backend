@@ -1,6 +1,6 @@
 import { subDays, eachDayOfInterval, startOfDay, endOfDay, format } from 'date-fns';
 import DoseLog from '../../models/DoseLog.model.js';
-import Medication from '../../models/Medication.model.js';
+import PatientMedication from '../../models/PatientMedication.model.js';
 import { computeAdherenceRate, computeStreak, computeDelayMean } from '../utils/adherence.utils.js';
 
 export async function computeAdherence(patientId, medicationId, days) {
@@ -11,16 +11,26 @@ export async function computeAdherence(patientId, medicationId, days) {
   return computeAdherenceRate(logs);
 }
 
-export async function getAdherenceSummary(patientId) {
-  const meds = await Medication.find({ patientId, isActive: true }).lean();
+export async function getAdherenceSummary(patientId, period = 'month') {
+  const periodDays = { week: 7, month: 30, quarter: 90, year: 365 };
+  const days = periodDays[period] ?? 30;
+  const from = subDays(new Date(), days);
+
+  const meds = await PatientMedication.find({ patientId, isActive: true })
+    .populate('medicationId', 'name')
+    .lean();
 
   const summaries = await Promise.all(
     meds.map(async (med) => {
-      const [a7, a30] = await Promise.all([
-        computeAdherence(patientId, med._id, 7),
-        computeAdherence(patientId, med._id, 30),
-      ]);
-      return { medicationId: med._id, name: med.name, adherence7d: a7, adherence30d: a30 };
+      const logs = await DoseLog.find({
+        patientMedicationId: med._id,
+        scheduledTime: { $gte: from },
+      }).lean();
+      return {
+        medicationId: med._id,
+        name: med.medicationId?.name || 'Unknown',
+        adherence: computeAdherenceRate(logs),
+      };
     })
   );
 

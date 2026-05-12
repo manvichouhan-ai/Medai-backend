@@ -7,9 +7,10 @@ export function startMissedDoseJob() {
   cron.schedule('*/5 * * * *', async () => {
     try {
       const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const graceCutoff = new Date(Date.now() - 10 * 60 * 1000);
 
       const overdueLogs = await DoseLog.find({
-        scheduledTime: { $lt: twoHoursAgo },
+        scheduledTime: { $lt: graceCutoff },
         status: 'pending',
       })
         .populate('medicationId', 'name')

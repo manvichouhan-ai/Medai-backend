@@ -2,9 +2,15 @@ import mongoose from 'mongoose';
 
 const doseLogSchema = new mongoose.Schema(
   {
+    patientMedicationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'PatientMedication',
+      required: true,
+      index: true,
+    },
     medicationId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Medication',
+      ref: 'MasterMedication',
       required: true,
       index: true,
     },
@@ -59,8 +65,8 @@ const doseLogSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-doseLogSchema.index({ patientId: 1, scheduledTime: -1 });
-doseLogSchema.index({ patientId: 1, status: 1 });
-doseLogSchema.index({ patientId: 1, scheduledTime: -1, status: 1 });
+doseLogSchema.index({ patientMedicationId: 1, scheduledTime: -1 });
+doseLogSchema.index({ patientMedicationId: 1, status: 1 });
+doseLogSchema.index({ patientMedicationId: 1, scheduledTime: -1, status: 1 });
 
 export default mongoose.model('DoseLog', doseLogSchema);

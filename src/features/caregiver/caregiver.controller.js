@@ -39,8 +39,17 @@ export async function acceptInvite(req, res, next) {
 
 export async function addNote(req, res, next) {
   try {
-    const alert = await caregiverService.addNote(req.user._id, req.params.id, req.body.message);
+    const alert = await caregiverService.addNote(req.user._id, req.params.id, req.body.content);
     return sendSuccess(res, { alert }, 201);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getPatientNotes(req, res, next) {
+  try {
+    const notes = await caregiverService.getPatientNotes(req.user._id, req.params.patientId);
+    return sendSuccess(res, { notes });
   } catch (err) {
     next(err);
   }

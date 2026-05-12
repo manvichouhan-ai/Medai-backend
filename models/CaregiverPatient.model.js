@@ -24,12 +24,23 @@ const caregiverPatientSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    doctorId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+      index: true,
+    },
     relationship: { type: String },
+    assignedAt: { type: Date, default: Date.now },
     canEditSchedule: { type: Boolean, default: false },
     alertPreferences: { type: alertPreferencesSchema, default: () => ({}) },
     status: { type: String, enum: ['pending', 'active'], default: 'pending' },
   },
   { timestamps: true }
 );
+
+caregiverPatientSchema.index({ caregiverId: 1, patientId: 1 }, { unique: true });
+caregiverPatientSchema.index({ caregiverId: 1, status: 1 });
+caregiverPatientSchema.index({ doctorId: 1, status: 1 });
 
 export default mongoose.model('CaregiverPatient', caregiverPatientSchema);

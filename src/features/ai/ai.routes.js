@@ -8,6 +8,5 @@ router.use(verifyToken);
 
 router.get('/risk/:patientId', aiController.getRiskScore);
 router.get('/insights/:patientId', aiController.getInsights);
-router.post('/run-predictions', requireRole('admin'), aiController.runPredictions);
 
 export default router;

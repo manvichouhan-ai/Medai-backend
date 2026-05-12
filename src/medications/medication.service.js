@@ -1,22 +1,38 @@
 import { addDays, parseISO, startOfDay } from 'date-fns';
-import Medication from '../../models/Medication.model.js';
+import PatientMedication from '../../models/PatientMedication.model.js';
 import DoseLog from '../../models/DoseLog.model.js';
 import { dayOfWeekShort } from '../utils/date.utils.js';
 import { logger } from '../utils/logger.js';
 
 const DAY_MAP = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
-export async function generateDoseLogs(medicationId, patientId, frequency, startDate, days = 30) {
+export async function generateDoseLogs(medicationId, patientId, frequency, startDate, scheduleType, daysOfWeek, days = 30) {
   const start = typeof startDate === 'string' ? parseISO(startDate) : startDate;
   const logs = [];
 
   for (let i = 0; i < days; i++) {
     const day = addDays(startOfDay(start), i);
     const dayName = dayOfWeekShort(day);
-    const allDays = frequency.days.includes('all');
-    if (!allDays && !frequency.days.includes(dayName)) continue;
 
-    for (const timeStr of frequency.times) {
+    let shouldSchedule = false;
+    let timesToSchedule = [];
+
+    if (scheduleType === 'weekly') {
+      if (daysOfWeek && daysOfWeek.includes(dayName)) {
+        shouldSchedule = true;
+        timesToSchedule = frequency.times || [];
+      }
+    } else {
+      const allDays = frequency.days.includes('all');
+      if (allDays || frequency.days.includes(dayName)) {
+        shouldSchedule = true;
+        timesToSchedule = frequency.times;
+      }
+    }
+
+    if (!shouldSchedule) continue;
+
+    for (const timeStr of timesToSchedule) {
       const [hours, minutes] = timeStr.split(':').map(Number);
       const scheduledTime = new Date(day);
       scheduledTime.setUTCHours(hours, minutes, 0, 0);
@@ -31,9 +47,83 @@ export async function generateDoseLogs(medicationId, patientId, frequency, start
   return logs.length;
 }
 
-export async function listMedications(userId, role, patientId) {
-  const queryPatientId = (role === 'doctor' || role === 'admin') && patientId ? patientId : userId;
-  return Medication.find({ patientId: queryPatientId, isActive: true }).lean();
+/**
+ * COMPATIBILITY LAYER: List medications using NEW PatientMedication system
+ * Frontend expects array of medication objects with specific shape
+ */
+export async function listMedications(patientId, role, isActive) {
+  const query = { patientId };
+  if (isActive !== undefined) {
+    query.isActive = isActive;
+  }
+
+  const patientMedications = await PatientMedication.find(query)
+    .populate('medicationId')
+    .populate('patientId', 'fullName email')
+    .sort({ startDate: -1 })
+    .lean();
+
+  // Transform to frontend-compatible shape
+  const medications = patientMedications.map(pm => ({
+    id: pm._id.toString(),
+    medicationId: pm.medicationId?._id?.toString() || pm.medicationId,
+    patientId: pm.patientId._id?.toString() || pm.patientId,
+    name: pm.medicationId?.name || 'Unknown Medication',
+    genericName: pm.medicationId?.genericName,
+    dosage: pm.dosage,
+    times: pm.times,
+    scheduleType: pm.scheduleType,
+    daysOfWeek: pm.daysOfWeek,
+    instructions: pm.instructions,
+    startDate: pm.startDate,
+    endDate: pm.endDate,
+    isActive: pm.isActive,
+    // Catalog details
+    category: pm.medicationId?.category,
+    strength: pm.medicationId?.strength,
+    form: pm.medicationId?.form,
+    manufacturer: pm.medicationId?.manufacturer,
+  }));
+
+  return medications;
+}
+
+/**
+ * COMPATIBILITY LAYER: Get medication by ID using NEW PatientMedication system
+ */
+export async function getMedicationById(id, userId) {
+  const pm = await PatientMedication.findById(id)
+    .populate('medicationId')
+    .populate('patientId', 'fullName email')
+    .populate('assignedByDoctor', 'fullName email')
+    .lean();
+
+  if (!pm) throw Object.assign(new Error('Medication not found'), { statusCode: 404 });
+
+  // Transform to frontend-compatible shape
+  return {
+    id: pm._id.toString(),
+    medicationId: pm.medicationId?._id?.toString() || pm.medicationId,
+    patientId: pm.patientId._id?.toString() || pm.patientId,
+    assignedByDoctor: pm.assignedByDoctor?._id?.toString() || pm.assignedByDoctor,
+    name: pm.medicationId?.name || 'Unknown Medication',
+    genericName: pm.medicationId?.genericName,
+    dosage: pm.dosage,
+    times: pm.times,
+    scheduleType: pm.scheduleType,
+    daysOfWeek: pm.daysOfWeek,
+    instructions: pm.instructions,
+    startDate: pm.startDate,
+    endDate: pm.endDate,
+    isActive: pm.isActive,
+    // Catalog details
+    category: pm.medicationId?.category,
+    strength: pm.medicationId?.strength,
+    form: pm.medicationId?.form,
+    manufacturer: pm.medicationId?.manufacturer,
+    description: pm.medicationId?.description,
+    sideEffects: pm.medicationId?.sideEffects,
+  };
 }
 
 export async function getTodayDoses(userId) {
@@ -47,58 +137,10 @@ export async function getTodayDoses(userId) {
     patientId: userId,
     scheduledTime: { $gte: start, $lte: end },
   })
-    .populate('medicationId', 'name dosage instructions')
+    .populate('medicationId')
+    .populate('patientMedicationId')
     .sort({ scheduledTime: 1 })
     .lean();
 
   return logs;
-}
-
-export async function getMedicationById(medicationId, userId) {
-  const med = await Medication.findOne({ _id: medicationId, isActive: true }).lean();
-  if (!med) throw Object.assign(new Error('Medication not found'), { statusCode: 404 });
-
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-  const logs = await DoseLog.find({
-    medicationId,
-    scheduledTime: { $gte: sevenDaysAgo },
-  })
-    .sort({ scheduledTime: -1 })
-    .lean();
-
-  return { ...med, recentLogs: logs };
-}
-
-export async function createMedication(patientId, data) {
-  const med = await Medication.create({ ...data, patientId });
-  await generateDoseLogs(med._id, patientId, med.frequency, med.startDate, 30);
-  return med;
-}
-
-export async function updateMedication(medicationId, patientId, updates) {
-  const med = await Medication.findOneAndUpdate(
-    { _id: medicationId, patientId, isActive: true },
-    updates,
-    { new: true, runValidators: true }
-  );
-  if (!med) throw Object.assign(new Error('Medication not found'), { statusCode: 404 });
-
-  if (updates.frequency || updates.startDate) {
-    await DoseLog.deleteMany({ medicationId, status: 'pending', scheduledTime: { $gte: new Date() } });
-    await generateDoseLogs(med._id, patientId, med.frequency, new Date(), 30);
-  }
-
-  return med;
-}
-
-export async function deleteMedication(medicationId, patientId) {
-  const med = await Medication.findOneAndUpdate(
-    { _id: medicationId, patientId },
-    { isActive: false },
-    { new: true }
-  );
-  if (!med) throw Object.assign(new Error('Medication not found'), { statusCode: 404 });
-  return med;
 }

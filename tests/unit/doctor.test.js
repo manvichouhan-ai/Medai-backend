@@ -536,4 +536,384 @@ describe('Doctor Service', () => {
       ).rejects.toMatchObject({ statusCode: 403 });
     });
   });
+
+  describe('createPatient', () => {
+    it('creates a patient account successfully', async () => {
+      const patientData = {
+        fullName: 'New Patient',
+        email: `newpatient-${Date.now()}@test.com`,
+        password: 'password123',
+        age: 45,
+        gender: 'male',
+        phone: '+1234567890',
+        conditions: ['diabetes', 'hypertension'],
+        emergencyContact: {
+          name: 'John Doe',
+          phone: '+1234567890',
+          relationship: 'spouse',
+        },
+      };
+
+      const result = await doctorService.createPatient(doctorId, patientData);
+
+      expect(result).toBeDefined();
+      expect(result.fullName).toBe('New Patient');
+      expect(result.email).toBe(patientData.email);
+      expect(result.role).toBe('patient');
+      expect(result.age).toBe(45);
+      expect(result.gender).toBe('male');
+      expect(result.conditions).toEqual(['diabetes', 'hypertension']);
+      expect(result.passwordHash).toBeUndefined();
+    });
+
+    it('throws error if email already exists', async () => {
+      const patientData = {
+        fullName: 'New Patient',
+        email: `patient-${Date.now()}@test.com`,
+        password: 'password123',
+        age: 45,
+        gender: 'male',
+        phone: '+1234567890',
+        conditions: [],
+        emergencyContact: {
+          name: 'John Doe',
+          phone: '+1234567890',
+          relationship: 'spouse',
+        },
+      };
+
+      await User.create({
+        email: patientData.email,
+        fullName: 'Existing User',
+        role: 'patient',
+      });
+
+      await expect(
+        doctorService.createPatient(doctorId, patientData)
+      ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('creates doctor-patient relationship', async () => {
+      const patientData = {
+        fullName: 'New Patient',
+        email: `newpatient-${Date.now()}@test.com`,
+        password: 'password123',
+        age: 45,
+        gender: 'male',
+        phone: '+1234567890',
+        conditions: [],
+        emergencyContact: {
+          name: 'John Doe',
+          phone: '+1234567890',
+          relationship: 'spouse',
+        },
+      };
+
+      await doctorService.createPatient(doctorId, patientData);
+
+      const relationship = await DoctorPatient.findOne({
+        doctorId,
+        status: 'active',
+      });
+      expect(relationship).toBeDefined();
+    });
+  });
+
+  describe('createCaregiver', () => {
+    it('creates a caregiver account successfully', async () => {
+      const caregiverData = {
+        fullName: 'New Caregiver',
+        email: `newcaregiver-${Date.now()}@test.com`,
+        password: 'password123',
+        phone: '+1234567890',
+        relationship: 'nurse',
+        address: '123 Test St',
+      };
+
+      const result = await doctorService.createCaregiver(doctorId, caregiverData);
+
+      expect(result).toBeDefined();
+      expect(result.fullName).toBe('New Caregiver');
+      expect(result.email).toBe(caregiverData.email);
+      expect(result.role).toBe('caregiver');
+      expect(result.passwordHash).toBeUndefined();
+    });
+
+    it('throws error if email already exists', async () => {
+      const caregiverData = {
+        fullName: 'New Caregiver',
+        email: `caregiver-${Date.now()}@test.com`,
+        password: 'password123',
+        phone: '+1234567890',
+        relationship: 'nurse',
+      };
+
+      await User.create({
+        email: caregiverData.email,
+        fullName: 'Existing User',
+        role: 'caregiver',
+      });
+
+      await expect(
+        doctorService.createCaregiver(doctorId, caregiverData)
+      ).rejects.toMatchObject({ statusCode: 409 });
+    });
+  });
+
+  describe('assignCaregiverToPatient', () => {
+    let caregiverId;
+
+    beforeEach(async () => {
+      const caregiver = await User.create({
+        email: `caregiver-${Date.now()}@test.com`,
+        fullName: 'Test Caregiver',
+        role: 'caregiver',
+        createdByDoctor: doctorId,
+      });
+      caregiverId = caregiver._id;
+    });
+
+    it('assigns caregiver to patient successfully', async () => {
+      const result = await doctorService.assignCaregiverToPatient(doctorId, patientId, {
+        caregiverId,
+        relationship: 'nurse',
+      });
+
+      expect(result).toBeDefined();
+      expect(result.caregiverId.toString()).toBe(caregiverId.toString());
+      expect(result.patientId.toString()).toBe(patientId.toString());
+      expect(result.doctorId.toString()).toBe(doctorId.toString());
+      expect(result.status).toBe('active');
+    });
+
+    it('throws error if caregiver not created by doctor', async () => {
+      const otherDoctor = await User.create({
+        email: `otherdoctor-${Date.now()}@test.com`,
+        fullName: 'Other Doctor',
+        role: 'doctor',
+      });
+
+      const otherCaregiver = await User.create({
+        email: `othercaregiver-${Date.now()}@test.com`,
+        fullName: 'Other Caregiver',
+        role: 'caregiver',
+        createdByDoctor: otherDoctor._id,
+      });
+
+      await expect(
+        doctorService.assignCaregiverToPatient(doctorId, patientId, {
+          caregiverId: otherCaregiver._id,
+        })
+      ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('throws error if caregiver already assigned to patient', async () => {
+      await doctorService.assignCaregiverToPatient(doctorId, patientId, {
+        caregiverId,
+        relationship: 'nurse',
+      });
+
+      await expect(
+        doctorService.assignCaregiverToPatient(doctorId, patientId, {
+          caregiverId,
+        })
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('throws error if caregiver has max 3 active patients', async () => {
+      const otherPatients = [];
+      for (let i = 0; i < 3; i++) {
+        const p = await User.create({
+          email: `otherpatient-${Date.now()}-${i}@test.com`,
+          fullName: `Other Patient ${i}`,
+          role: 'patient',
+        });
+        otherPatients.push(p._id);
+
+        await DoctorPatient.create({
+          doctorId,
+          patientId: p._id,
+          status: 'active',
+        });
+
+        await doctorService.assignCaregiverToPatient(doctorId, p._id, {
+          caregiverId,
+        });
+      }
+
+      const newPatient = await User.create({
+        email: `newpatient-${Date.now()}@test.com`,
+        fullName: 'New Patient',
+        role: 'patient',
+      });
+      await DoctorPatient.create({
+        doctorId,
+        patientId: newPatient._id,
+        status: 'active',
+      });
+
+      await expect(
+        doctorService.assignCaregiverToPatient(doctorId, newPatient._id, {
+          caregiverId,
+        })
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('throws error if doctor not assigned to patient', async () => {
+      await expect(
+        doctorService.assignCaregiverToPatient(doctorId, otherPatientId, {
+          caregiverId,
+        })
+      ).rejects.toMatchObject({ statusCode: 403 });
+    });
+  });
+
+  describe('createMedicationForPatient', () => {
+    it('creates medication for assigned patient', async () => {
+      const medicationData = {
+        name: 'Metformin',
+        dosage: '500mg',
+        frequency: { times: ['08:00', '20:00'], days: ['all'] },
+        scheduleType: 'daily',
+        startDate: new Date().toISOString(),
+        instructions: 'Take with food',
+      };
+
+      const result = await doctorService.createMedicationForPatient(doctorId, patientId, medicationData);
+
+      expect(result).toBeDefined();
+      expect(result.name).toBe('Metformin');
+      expect(result.patientId.toString()).toBe(patientId.toString());
+      expect(result.createdByDoctor.toString()).toBe(doctorId.toString());
+      expect(result.scheduleType).toBe('daily');
+    });
+
+    it('creates medication with weekly schedule', async () => {
+      const medicationData = {
+        name: 'Metformin',
+        dosage: '500mg',
+        frequency: { times: ['08:00'], days: [] },
+        scheduleType: 'weekly',
+        daysOfWeek: ['Mon', 'Wed', 'Fri'],
+        startDate: new Date().toISOString(),
+      };
+
+      const result = await doctorService.createMedicationForPatient(doctorId, patientId, medicationData);
+
+      expect(result).toBeDefined();
+      expect(result.scheduleType).toBe('weekly');
+      expect(result.daysOfWeek).toEqual(['Mon', 'Wed', 'Fri']);
+    });
+
+    it('throws error if doctor not assigned to patient', async () => {
+      const medicationData = {
+        name: 'Metformin',
+        dosage: '500mg',
+        frequency: { times: ['08:00'], days: ['all'] },
+        startDate: new Date().toISOString(),
+      };
+
+      await expect(
+        doctorService.createMedicationForPatient(doctorId, otherPatientId, medicationData)
+      ).rejects.toMatchObject({ statusCode: 403 });
+    });
+  });
+
+  describe('updateMedicationForDoctor', () => {
+    it('updates medication created by doctor', async () => {
+      const medication = await Medication.create({
+        patientId,
+        name: 'Old Name',
+        dosage: '10mg',
+        frequency: { times: ['08:00'], days: ['all'] },
+        startDate: new Date(),
+        createdByDoctor: doctorId,
+      });
+
+      const updates = {
+        name: 'New Name',
+        dosage: '20mg',
+      };
+
+      const result = await doctorService.updateMedicationForDoctor(doctorId, medication._id, updates);
+
+      expect(result.name).toBe('New Name');
+      expect(result.dosage).toBe('20mg');
+    });
+
+    it('throws error if medication not created by doctor', async () => {
+      const otherDoctor = await User.create({
+        email: `otherdoctor-${Date.now()}@test.com`,
+        fullName: 'Other Doctor',
+        role: 'doctor',
+      });
+
+      const medication = await Medication.create({
+        patientId,
+        name: 'Test Med',
+        dosage: '10mg',
+        frequency: { times: ['08:00'], days: ['all'] },
+        startDate: new Date(),
+        createdByDoctor: otherDoctor._id,
+      });
+
+      await expect(
+        doctorService.updateMedicationForDoctor(doctorId, medication._id, { name: 'New Name' })
+      ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('throws error if medication not found', async () => {
+      const fakeId = new mongoose.Types.ObjectId();
+
+      await expect(
+        doctorService.updateMedicationForDoctor(doctorId, fakeId, { name: 'New Name' })
+      ).rejects.toMatchObject({ statusCode: 404 });
+    });
+  });
+
+  describe('deleteMedicationForDoctor', () => {
+    it('deactivates medication created by doctor', async () => {
+      const medication = await Medication.create({
+        patientId,
+        name: 'Test Med',
+        dosage: '10mg',
+        frequency: { times: ['08:00'], days: ['all'] },
+        startDate: new Date(),
+        createdByDoctor: doctorId,
+      });
+
+      const result = await doctorService.deleteMedicationForDoctor(doctorId, medication._id);
+
+      expect(result.isActive).toBe(false);
+    });
+
+    it('throws error if medication not created by doctor', async () => {
+      const otherDoctor = await User.create({
+        email: `otherdoctor-${Date.now()}@test.com`,
+        fullName: 'Other Doctor',
+        role: 'doctor',
+      });
+
+      const medication = await Medication.create({
+        patientId,
+        name: 'Test Med',
+        dosage: '10mg',
+        frequency: { times: ['08:00'], days: ['all'] },
+        startDate: new Date(),
+        createdByDoctor: otherDoctor._id,
+      });
+
+      await expect(
+        doctorService.deleteMedicationForDoctor(doctorId, medication._id)
+      ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('throws error if medication not found', async () => {
+      const fakeId = new mongoose.Types.ObjectId();
+
+      await expect(
+        doctorService.deleteMedicationForDoctor(doctorId, fakeId)
+      ).rejects.toMatchObject({ statusCode: 404 });
+    });
+  });
 });

@@ -1,6 +1,8 @@
+import bcrypt from 'bcrypt';
 import DoctorPatient from '../../../models/DoctorPatient.model.js';
 import User from '../../../models/User.model.js';
 import Medication from '../../../models/Medication.model.js';
+import PatientMedication from '../../../models/PatientMedication.model.js';
 import DoseLog from '../../../models/DoseLog.model.js';
 import Alert from '../../../models/Alert.model.js';
 import Intervention from '../../../models/Intervention.model.js';
@@ -8,7 +10,10 @@ import CaregiverPatient from '../../../models/CaregiverPatient.model.js';
 import { getAdherenceSummary, getAdherenceHistory } from '../../adherence/adherence.service.js';
 import { getRiskScore } from '../ai/ai.service.js';
 import { generateInsight } from '../ai/ai.service.js';
+import { generateDoseLogs } from '../../medications/medication.service.js';
 import { logger } from '../../utils/logger.js';
+
+const BCRYPT_ROUNDS = 12;
 
 async function validateDoctorPatientAccess(doctorId, patientId) {
   const link = await DoctorPatient.findOne({
@@ -30,7 +35,7 @@ export async function getAssignedPatients(doctorId, filters = {}) {
   const skip = (page - 1) * limit;
 
   let links = await DoctorPatient.find(query)
-    .populate('patientId', 'fullName email phone timezone notificationPrefs')
+    .populate('patientId', 'fullName email phone timezone notificationPrefs age')
     .skip(skip)
     .limit(Number(limit))
     .lean();
@@ -102,8 +107,9 @@ export async function getPatientProfile(doctorId, patientId) {
 
   const [adherence, medications, recentAlerts, interventions, caregivers] = await Promise.all([
     getAdherenceSummary(patientId),
-    Medication.find({ patientId, isActive: true })
-      .populate('prescribedBy', 'fullName email')
+    PatientMedication.find({ patientId, isActive: true })
+      .populate('medicationId', 'name genericName category strength form')
+      .populate('assignedByDoctor', 'fullName email')
       .lean(),
     Alert.find({ patientId }).sort({ createdAt: -1 }).limit(10).lean(),
     Intervention.find({ patientId }).sort({ createdAt: -1 }).limit(10)
@@ -457,4 +463,134 @@ export async function getPatientInterventions(doctorId, patientId, filters = {})
     page: Number(page),
     limit: Number(limit),
   };
+}
+
+export async function createPatient(doctorId, data) {
+  const { email, password, fullName, age, gender, phone, conditions, emergencyContact } = data;
+
+  const existingUser = await User.findOne({ email });
+  if (existingUser) {
+    throw Object.assign(new Error('Email already in use'), { statusCode: 409 });
+  }
+
+  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+
+  const patient = await User.create({
+    email,
+    passwordHash,
+    fullName,
+    role: 'patient',
+    age,
+    gender,
+    phone,
+    conditions,
+    emergencyContact,
+    createdByDoctor: doctorId,
+  });
+
+  await DoctorPatient.create({
+    doctorId,
+    patientId: patient._id,
+    status: 'active',
+  });
+
+  logger.info('Patient created by doctor', { patientId: patient._id, doctorId });
+
+  return patient.toSafeObject();
+}
+
+export async function createCaregiver(doctorId, data) {
+  const { email, password, fullName, phone, relationship, address } = data;
+
+  const existingUser = await User.findOne({ email });
+  if (existingUser) {
+    throw Object.assign(new Error('Email already in use'), { statusCode: 409 });
+  }
+
+  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+
+  const caregiver = await User.create({
+    email,
+    passwordHash,
+    fullName,
+    role: 'caregiver',
+    phone,
+    address,
+    relationship,
+    createdByDoctor: doctorId,
+  });
+
+  logger.info('Caregiver created by doctor', { caregiverId: caregiver._id, doctorId });
+
+  return caregiver.toSafeObject();
+}
+
+export async function getAssignedCaregivers(doctorId) {
+  const caregivers = await User.find({
+    role: 'caregiver',
+    createdByDoctor: doctorId,
+  })
+    .select('_id fullName email relationship')
+    .lean();
+
+  const caregiversWithCounts = await Promise.all(
+    caregivers.map(async (caregiver) => {
+      const patientCount = await CaregiverPatient.countDocuments({
+        caregiverId: caregiver._id,
+        doctorId,
+        status: 'active',
+      });
+
+      return {
+        id: caregiver._id,
+        fullName: caregiver.fullName,
+        email: caregiver.email,
+        relationship: caregiver.relationship,
+        patientCount,
+      };
+    })
+  );
+
+  return caregiversWithCounts;
+}
+
+export async function assignCaregiverToPatient(doctorId, patientId, data) {
+  const { caregiverId, relationship } = data;
+
+  await validateDoctorPatientAccess(doctorId, patientId);
+
+  const caregiver = await User.findOne({ _id: caregiverId, role: 'caregiver', createdByDoctor: doctorId });
+  if (!caregiver) {
+    throw Object.assign(new Error('Caregiver not found or not created by this doctor'), { statusCode: 404 });
+  }
+
+  const existingAssignment = await CaregiverPatient.findOne({
+    caregiverId,
+    patientId,
+    status: 'active',
+  });
+  if (existingAssignment) {
+    throw Object.assign(new Error('Caregiver already assigned to this patient'), { statusCode: 400 });
+  }
+
+  const activePatientCount = await CaregiverPatient.countDocuments({
+    caregiverId,
+    status: 'active',
+  });
+  if (activePatientCount >= 3) {
+    throw Object.assign(new Error('Caregiver can manage maximum 3 active patients'), { statusCode: 400 });
+  }
+
+  const assignment = await CaregiverPatient.create({
+    caregiverId,
+    patientId,
+    doctorId,
+    relationship: relationship || caregiver.relationship || 'caregiver',
+    assignedAt: new Date(),
+    status: 'active',
+  });
+
+  logger.info('Caregiver assigned to patient', { caregiverId, patientId, doctorId });
+
+  return assignment;
 }

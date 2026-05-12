@@ -18,6 +18,14 @@ export async function dispatchAlert(patientId, alertType, message, triggeredBy =
     .select('fullName email phone notificationPrefs')
     .lean();
 
+  // Debug log at TOP of dispatchAlert
+  logger.info('dispatchAlert called', { 
+    patientId, 
+    patientEmail: patient?.email, 
+    notificationPrefs: patient?.notificationPrefs,
+    alertType 
+  });
+
   const sendMessage =
     alertType === 'missed_dose' && patient?.fullName
       ? `Dear ${patient.fullName}, you missed your ${message}. Please take it as soon as possible or contact your caregiver.`
@@ -36,6 +44,19 @@ export async function dispatchAlert(patientId, alertType, message, triggeredBy =
     .populate('caregiverId', 'fullName phone email fcmToken notificationPrefs')
     .lean();
 
+  // Debug log for caregiver count
+  logger.info('Caregivers found', { 
+    patientId, 
+    caregiverCount: caregiverLinks.length,
+    caregivers: caregiverLinks.map(link => ({ 
+      id: link.caregiverId?._id, 
+      name: link.caregiverId?.fullName,
+      hasEmail: !!link.caregiverId?.email,
+      hasPhone: !!link.caregiverId?.phone,
+      alertPrefs: link.alertPreferences 
+    }))
+  });
+
   const sentTo = [];
   const channels = new Set();
 
@@ -48,10 +69,12 @@ export async function dispatchAlert(patientId, alertType, message, triggeredBy =
       channels.add('push');
     }
     if (link.alertPreferences?.sms && cg.phone) {
+      logger.info('Sending SMS to caregiver', { caregiverPhone: cg.phone, caregiverName: cg.fullName });
       await sendSMS(cg.phone, sendMessage);
       channels.add('sms');
     }
     if (link.alertPreferences?.email && cg.email) {
+      logger.info('Sending email to caregiver', { caregiverEmail: cg.email, caregiverName: cg.fullName });
       await sendEmail(cg.email, 'MedAI Missed Dose Alert', `<p>${sendMessage}</p>`);
       channels.add('email');
     }
@@ -61,10 +84,12 @@ export async function dispatchAlert(patientId, alertType, message, triggeredBy =
   if (patient) {
     const patientTasks = [];
     if (patient.notificationPrefs?.email && patient.email) {
+      logger.info('Sending email to patient', { patientEmail: patient.email, patientName: patient.fullName });
       patientTasks.push(sendEmail(patient.email, 'MedAI Missed Dose Alert', `<p>${sendMessage}</p>`));
       channels.add('email');
     }
     if (patient.notificationPrefs?.sms && patient.phone) {
+      logger.info('Sending SMS to patient', { patientPhone: patient.phone, patientName: patient.fullName });
       patientTasks.push(sendSMS(patient.phone, sendMessage));
       channels.add('sms');
     }

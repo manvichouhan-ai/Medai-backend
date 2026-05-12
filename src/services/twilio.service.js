@@ -6,19 +6,14 @@ export async function sendSMS(to, message) {
     logger.info('SMS stub: FAST2SMS_API_KEY not configured', { to });
     return;
   }
+  const url = 'https://www.fast2sms.com/dev/bulkV2';
+  const headers = { Authorization: process.env.FAST2SMS_API_KEY, 'Content-Type': 'application/json' };
+  const body = { route: 'q', message, language: 'english', flash: 0, numbers: to };
+  logger.info('Fast2SMS request', { url, headers, body });
   try {
-    const response = await axios.post(
-      'https://www.fast2sms.com/dev/bulkV2',
-      { route: 'q', message, language: 'english', numbers: to },
-      {
-        headers: {
-          Authorization: process.env.FAST2SMS_API_KEY,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-    logger.debug('SMS sent via Fast2SMS', { to, requestId: response.data?.request_id });
+    const response = await axios.post(url, body, { headers });
+    logger.info('Fast2SMS response', { status: response.status, data: response.data });
   } catch (err) {
-    logger.error('Fast2SMS send error', { error: err.message });
+    logger.error('Fast2SMS send error', { error: err.response?.data ?? err.message });
   }
 }

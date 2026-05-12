@@ -14,11 +14,20 @@ export async function sendUserPushNotification(userId, title, body) {
 }
 
 export async function dispatchAlert(patientId, alertType, message, triggeredBy = 'system') {
+  const patient = await User.findById(patientId)
+    .select('fullName email phone notificationPrefs')
+    .lean();
+
+  const sendMessage =
+    alertType === 'missed_dose' && patient?.fullName
+      ? `Dear ${patient.fullName}, you missed your ${message}. Please take it as soon as possible or contact your caregiver.`
+      : message;
+
   const alert = await Alert.create({
     patientId,
     triggeredBy,
     type: alertType,
-    message,
+    message: sendMessage,
     channels: [],
     sentTo: [],
   });
@@ -35,18 +44,34 @@ export async function dispatchAlert(patientId, alertType, message, triggeredBy =
     if (!cg) continue;
 
     if (link.alertPreferences?.push && cg.fcmToken) {
-      await sendPushNotification(cg.fcmToken, 'MedAI Alert', message);
+      await sendPushNotification(cg.fcmToken, 'MedAI Alert', sendMessage);
       channels.add('push');
     }
     if (link.alertPreferences?.sms && cg.phone) {
-      await sendSMS(cg.phone, `MedAI: ${message}`);
+      await sendSMS(cg.phone, sendMessage);
       channels.add('sms');
     }
     if (link.alertPreferences?.email && cg.email) {
-      await sendEmail(cg.email, 'MedAI Alert', `<p>${message}</p>`);
+      await sendEmail(cg.email, 'MedAI Missed Dose Alert', `<p>${sendMessage}</p>`);
       channels.add('email');
     }
     sentTo.push(cg._id);
+  }
+
+  if (patient) {
+    const patientTasks = [];
+    if (patient.notificationPrefs?.email && patient.email) {
+      patientTasks.push(sendEmail(patient.email, 'MedAI Missed Dose Alert', `<p>${sendMessage}</p>`));
+      channels.add('email');
+    }
+    if (patient.notificationPrefs?.sms && patient.phone) {
+      patientTasks.push(sendSMS(patient.phone, sendMessage));
+      channels.add('sms');
+    }
+    const settled = await Promise.allSettled(patientTasks);
+    settled.forEach((r) => {
+      if (r.status === 'rejected') logger.error('Patient notification failed', { error: r.reason?.message });
+    });
   }
 
   await Alert.findByIdAndUpdate(alert._id, {
@@ -59,7 +84,7 @@ export async function dispatchAlert(patientId, alertType, message, triggeredBy =
     io.to(patientId.toString()).emit('new_alert', {
       alertId: alert._id,
       type: alertType,
-      message,
+      message: sendMessage,
       timestamp: alert.createdAt,
     });
   } catch (err) {

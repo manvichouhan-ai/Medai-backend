@@ -6,6 +6,6 @@ const router = Router();
 
 router.use(verifyToken);
 
-// No active endpoints - notifications module currently unused
+router.post('/test', notificationController.sendTestNotification);
 
 export default router;

@@ -3,10 +3,18 @@ import DoseLog from '../../models/DoseLog.model.js';
 import { dispatchAlert } from '../features/notifications/notification.service.js';
 import { logger } from '../utils/logger.js';
 
+function formatTimeIST(date) {
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
+}
+
 export function startMissedDoseJob() {
   cron.schedule('*/5 * * * *', async () => {
     try {
-      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
       const graceCutoff = new Date(Date.now() - 10 * 60 * 1000);
 
       const overdueLogs = await DoseLog.find({
@@ -24,16 +32,17 @@ export function startMissedDoseJob() {
       const patientGroups = {};
       for (const log of overdueLogs) {
         const pid = log.patientId.toString();
-        if (!patientGroups[pid]) patientGroups[pid] = [];
-        patientGroups[pid].push(log.medicationId?.name || 'medication');
+        if (!patientGroups[pid]) patientGroups[pid] = { medNames: [], scheduledTime: log.scheduledTime };
+        patientGroups[pid].medNames.push(log.medicationId?.name || 'medication');
       }
 
-      for (const [patientId, medNames] of Object.entries(patientGroups)) {
+      for (const [patientId, { medNames, scheduledTime }] of Object.entries(patientGroups)) {
         const uniqueMeds = [...new Set(medNames)];
+        const timeIST = formatTimeIST(scheduledTime);
         await dispatchAlert(
           patientId,
           'missed_dose',
-          `Missed dose of ${uniqueMeds.join(', ')}`,
+          `${uniqueMeds.join(', ')} dose scheduled at ${timeIST}`,
           'system'
         );
       }

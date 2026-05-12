@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import User from '../../models/User.model.js';
-import { getRiskScore } from '../features/ai/ai.service.js';
+import { getPatientRiskPrediction } from '../services/ai.service.js';
 import { dispatchAlert } from '../features/notifications/notification.service.js';
 import { logger } from '../utils/logger.js';
 
@@ -12,12 +12,19 @@ export function startPredictionJob() {
 
       for (const patient of patients) {
         try {
-          const result = await getRiskScore(patient._id.toString());
-          if (result.riskScore > 0.7) {
+          const result = await getPatientRiskPrediction(patient._id.toString());
+          
+          logger.info('AI prediction result', {
+            patientId: patient._id,
+            riskLevel: result.riskLevel,
+            riskScore: result.riskScore
+          });
+          
+          if (result.riskLevel === 'high') {
             await dispatchAlert(
               patient._id,
               'high_risk',
-              'AI detected high risk of missing next dose',
+              `AI detected high risk of missing next dose (risk score: ${result.riskScore})`,
               'ai_prediction'
             );
             highRiskCount++;

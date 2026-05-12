@@ -44,17 +44,24 @@ export async function dispatchAlert(patientId, alertType, message, triggeredBy =
     .populate('caregiverId', 'fullName phone email fcmToken notificationPrefs')
     .lean();
 
-  // Debug log for caregiver count
-  logger.info('Caregivers found', { 
+  // Debug log - raw result of CaregiverPatient.find()
+  logger.info('Raw CaregiverPatient query result', { 
     patientId, 
-    caregiverCount: caregiverLinks.length,
-    caregivers: caregiverLinks.map(link => ({ 
-      id: link.caregiverId?._id, 
-      name: link.caregiverId?.fullName,
-      hasEmail: !!link.caregiverId?.email,
-      hasPhone: !!link.caregiverId?.phone,
-      alertPrefs: link.alertPreferences 
-    }))
+    rawResult: JSON.stringify(caregiverLinks, null, 2)
+  });
+
+  // Debug log for each caregiver details
+  caregiverLinks.forEach((link, index) => {
+    const cg = link.caregiverId;
+    logger.info(`Caregiver ${index + 1} details`, {
+      caregiverId: cg?._id,
+      fullName: cg?.fullName,
+      email: cg?.email,
+      phone: cg?.phone,
+      notificationPrefs: cg?.notificationPrefs,
+      alertPreferences: link.alertPreferences,
+      hasFcmToken: !!cg?.fcmToken
+    });
   });
 
   const sentTo = [];
@@ -68,13 +75,15 @@ export async function dispatchAlert(patientId, alertType, message, triggeredBy =
       await sendPushNotification(cg.fcmToken, 'MedAI Alert', sendMessage);
       channels.add('push');
     }
-    if (link.alertPreferences?.sms && cg.phone) {
-      logger.info('Sending SMS to caregiver', { caregiverPhone: cg.phone, caregiverName: cg.fullName });
+    // Fix: treat undefined alertPreferences as true for SMS (default to sending)
+    if ((link.alertPreferences?.sms !== false) && cg.phone) {
+      logger.info('Sending SMS to caregiver', { caregiverPhone: cg.phone, caregiverName: cg.fullName, alertPrefs: link.alertPreferences });
       await sendSMS(cg.phone, sendMessage);
       channels.add('sms');
     }
-    if (link.alertPreferences?.email && cg.email) {
-      logger.info('Sending email to caregiver', { caregiverEmail: cg.email, caregiverName: cg.fullName });
+    // Fix: treat undefined alertPreferences as true for email (default to sending)
+    if ((link.alertPreferences?.email !== false) && cg.email) {
+      logger.info('Sending email to caregiver', { caregiverEmail: cg.email, caregiverName: cg.fullName, alertPrefs: link.alertPreferences });
       await sendEmail(cg.email, 'MedAI Missed Dose Alert', `<p>${sendMessage}</p>`);
       channels.add('email');
     }
@@ -83,13 +92,15 @@ export async function dispatchAlert(patientId, alertType, message, triggeredBy =
 
   if (patient) {
     const patientTasks = [];
-    if (patient.notificationPrefs?.email && patient.email) {
-      logger.info('Sending email to patient', { patientEmail: patient.email, patientName: patient.fullName });
+    // Fix: treat undefined notificationPrefs as true for email (default to sending)
+    if ((patient.notificationPrefs?.email !== false) && patient.email) {
+      logger.info('Sending email to patient', { patientEmail: patient.email, patientName: patient.fullName, notificationPrefs: patient.notificationPrefs });
       patientTasks.push(sendEmail(patient.email, 'MedAI Missed Dose Alert', `<p>${sendMessage}</p>`));
       channels.add('email');
     }
-    if (patient.notificationPrefs?.sms && patient.phone) {
-      logger.info('Sending SMS to patient', { patientPhone: patient.phone, patientName: patient.fullName });
+    // Fix: treat undefined notificationPrefs as true for SMS (default to sending)
+    if ((patient.notificationPrefs?.sms !== false) && patient.phone) {
+      logger.info('Sending SMS to patient', { patientPhone: patient.phone, patientName: patient.fullName, notificationPrefs: patient.notificationPrefs });
       patientTasks.push(sendSMS(patient.phone, sendMessage));
       channels.add('sms');
     }

@@ -1,4 +1,3 @@
-// src/adherence/adherence.controller.js
 import * as adherenceService from './adherence.service.js';
 import { sendSuccess } from '../utils/response.utils.js';
 
@@ -19,13 +18,14 @@ export async function getAdherenceSummary(req, res, next) {
 
 export async function getAdherenceHistory(req, res, next) {
   try {
-    const { patientId, ...rest } = req.query;
-    const targetId =
-      patientId && ['doctor', 'admin', 'caregiver'].includes(req.user.role)
-        ? patientId
-        : req.user._id;
+    const { ...queryParams } = req.query;
 
-    const history = await adherenceService.getAdherenceHistory(targetId, rest);
+    const history = await adherenceService.getAdherenceHistory(
+      req.user._id,
+      req.user.role,
+      queryParams // passes patientId, from, to, medicationId — all handled in service
+    );
+
     return sendSuccess(res, { history });
   } catch (err) {
     next(err);

@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+import mongoose from 'mongoose';
 import DoctorPatient from '../../../models/DoctorPatient.model.js';
 import User from '../../../models/User.model.js';
 import Medication from '../../../models/Medication.model.js';
@@ -14,6 +15,36 @@ import { generateDoseLogs } from '../../medications/medication.service.js';
 import { logger } from '../../utils/logger.js';
 
 const BCRYPT_ROUNDS = 12;
+
+function toObjectId(id) {
+  return id instanceof mongoose.Types.ObjectId ? id : new mongoose.Types.ObjectId(id);
+}
+
+function getActiveMedicationQuery(patientId) {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const todayEnd = new Date(todayStart);
+  todayEnd.setHours(23, 59, 59, 999);
+
+  return {
+    patientId: toObjectId(patientId),
+    isActive: true,
+    startDate: { $lte: todayEnd },
+    $or: [
+      { endDate: { $exists: false } },
+      { endDate: null },
+      { endDate: { $gte: todayStart } },
+    ],
+  };
+}
+
+function getAverageAdherence(adherence = []) {
+  if (!adherence.length) return 0;
+
+  const total = adherence.reduce((sum, med) => sum + (med.adherence ?? med.adherence7d ?? 0), 0);
+  return Math.round(total / adherence.length);
+}
 
 async function validateDoctorPatientAccess(doctorId, patientId) {
   const link = await DoctorPatient.findOne({
@@ -44,21 +75,19 @@ export async function getAssignedPatients(doctorId, filters = {}) {
     links.map(async (link) => {
       const patient = link.patientId;
       if (!patient) return null;
+      const patientObjectId = toObjectId(patient._id);
 
       const [adherence, activeMeds, pendingAlerts, riskData] = await Promise.all([
-        getAdherenceSummary(patient._id),
-        Medication.countDocuments({ patientId: patient._id, isActive: true }),
-        Alert.countDocuments({ patientId: patient._id, status: 'active' }),
-        getRiskScore(patient._id),
+        getAdherenceSummary(patientObjectId),
+        PatientMedication.countDocuments(getActiveMedicationQuery(patientObjectId)),
+        Alert.countDocuments({ patientId: patientObjectId, status: 'active' }),
+        getRiskScore(patientObjectId),
       ]);
 
-      const avgAdherence =
-        adherence.length > 0
-          ? Math.round(adherence.reduce((a, m) => a + m.adherence7d, 0) / adherence.length)
-          : 0;
+      const avgAdherence = getAverageAdherence(adherence);
 
       return {
-        patientId: patient._id,
+        patientId: patientObjectId,
         patient,
         adherenceScore: avgAdherence,
         activeMedications: activeMeds,
@@ -99,32 +128,30 @@ export async function getAssignedPatients(doctorId, filters = {}) {
 
 export async function getPatientProfile(doctorId, patientId) {
   await validateDoctorPatientAccess(doctorId, patientId);
+  const patientObjectId = toObjectId(patientId);
 
-  const patient = await User.findById(patientId).select('-passwordHash').lean();
+  const patient = await User.findById(patientObjectId).select('-passwordHash').lean();
   if (!patient) {
     throw Object.assign(new Error('Patient not found'), { statusCode: 404 });
   }
 
   const [adherence, medications, recentAlerts, interventions, caregivers] = await Promise.all([
-    getAdherenceSummary(patientId),
-    PatientMedication.find({ patientId, isActive: true })
+    getAdherenceSummary(patientObjectId),
+    PatientMedication.find(getActiveMedicationQuery(patientObjectId))
       .populate('medicationId', 'name genericName category strength form')
       .populate('assignedByDoctor', 'fullName email')
       .lean(),
-    Alert.find({ patientId }).sort({ createdAt: -1 }).limit(10).lean(),
-    Intervention.find({ patientId }).sort({ createdAt: -1 }).limit(10)
+    Alert.find({ patientId: patientObjectId }).sort({ createdAt: -1 }).limit(10).lean(),
+    Intervention.find({ patientId: patientObjectId }).sort({ createdAt: -1 }).limit(10)
       .populate('createdBy', ' fullName email')
       .populate('assignedTo', 'fullName email')
       .lean(),
-    CaregiverPatient.find({ patientId, status: 'active' })
+    CaregiverPatient.find({ patientId: patientObjectId, status: 'active' })
       .populate('caregiverId', 'fullName email phone')
       .lean(),
   ]);
 
-  const avgAdherence =
-    adherence.length > 0
-      ? Math.round(adherence.reduce((a, m) => a + m.adherence7d, 0) / adherence.length)
-      : 0;
+  const avgAdherence = getAverageAdherence(adherence);
 
   return {
     patient,

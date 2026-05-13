@@ -3,6 +3,8 @@ import mongoose from 'mongoose';
 import User from '../../models/User.model.js';
 import DoctorPatient from '../../models/DoctorPatient.model.js';
 import Medication from '../../models/Medication.model.js';
+import MasterMedication from '../../models/MasterMedication.model.js';
+import PatientMedication from '../../models/PatientMedication.model.js';
 import DoseLog from '../../models/DoseLog.model.js';
 import Alert from '../../models/Alert.model.js';
 import Intervention from '../../models/Intervention.model.js';
@@ -101,6 +103,8 @@ describe('Doctor Service', () => {
     await Intervention.deleteMany({});
     await Alert.deleteMany({});
     await DoseLog.deleteMany({});
+    await PatientMedication.deleteMany({});
+    await MasterMedication.deleteMany({});
     await Medication.deleteMany({});
     await User.deleteMany({});
   });
@@ -111,6 +115,52 @@ describe('Doctor Service', () => {
       expect(result.patients).toHaveLength(1);
       expect(result.patients[0].patientId.toString()).toBe(patientId.toString());
       expect(result.patients[0].patient.fullName).toBe('Test Patient');
+    });
+
+    it('counts active patient medication assignments and calculates adherence', async () => {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const patientMedications = [];
+      for (let i = 0; i < 4; i++) {
+        const masterMedication = await MasterMedication.create({
+          name: `Medication ${i}`,
+          genericName: `Generic ${i}`,
+          category: 'Test',
+          strength: '10mg',
+          form: 'tablet',
+          manufacturer: 'Test Pharma',
+          createdByDoctor: doctorId,
+        });
+
+        const patientMedication = await PatientMedication.create({
+          patientId,
+          medicationId: masterMedication._id,
+          assignedByDoctor: doctorId,
+          dosage: '1 tablet',
+          scheduleType: 'daily',
+          times: ['09:00'],
+          startDate: todayStart,
+          endDate: todayStart,
+          isActive: true,
+        });
+        patientMedications.push(patientMedication);
+      }
+
+      await DoseLog.insertMany(
+        patientMedications.map((patientMedication) => ({
+          patientMedicationId: patientMedication._id,
+          medicationId: patientMedication.medicationId,
+          patientId,
+          scheduledTime: new Date(),
+          status: 'taken',
+        }))
+      );
+
+      const result = await doctorService.getAssignedPatients(doctorId);
+
+      expect(result.patients[0].activeMedications).toBe(4);
+      expect(result.patients[0].adherenceScore).toBe(100);
     });
 
     it('supports search by name', async () => {

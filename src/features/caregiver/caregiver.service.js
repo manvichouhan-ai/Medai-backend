@@ -1,9 +1,14 @@
-import { startOfDay, endOfDay } from 'date-fns';
 import CaregiverPatient from '../../../models/CaregiverPatient.model.js';
-import DoseLog from '../../../models/DoseLog.model.js';
 import User from '../../../models/User.model.js';
 import Alert from '../../../models/Alert.model.js';
-import { getAdherenceSummary } from '../../adherence/adherence.service.js';
+import { getAdherenceSummary, getTodayAdherence } from '../../adherence/adherence.service.js';
+
+function getAverageAdherence(adherence = []) {
+  if (!adherence.length) return 0;
+
+  const total = adherence.reduce((sum, med) => sum + (med.adherence ?? med.adherence7d ?? 0), 0);
+  return Math.round(total / adherence.length);
+}
 
 export async function listPatients(caregiverId) {
   const links = await CaregiverPatient.find({ caregiverId, status: 'active' })
@@ -14,13 +19,18 @@ export async function listPatients(caregiverId) {
     links.map(async (link) => {
       const patient = link.patientId;
       if (!patient) return null;
-      const todayLogs = await DoseLog.find({
-        patientId: patient._id,
-        scheduledTime: { $gte: startOfDay(new Date()), $lte: endOfDay(new Date()) },
-      }).lean();
-      const taken = todayLogs.filter((l) => l.status === 'taken' || l.status === 'delayed').length;
-      const todayAdherence = todayLogs.length > 0 ? Math.round((taken / todayLogs.length) * 100) : 0;
-      return { link: link._id, patient, todayAdherence };
+
+      const [todayAdherence, adherence] = await Promise.all([
+        getTodayAdherence(patient._id),
+        getAdherenceSummary(patient._id),
+      ]);
+
+      return {
+        link: link._id,
+        patient,
+        todayAdherence,
+        adherenceScore: getAverageAdherence(adherence),
+      };
     })
   );
 

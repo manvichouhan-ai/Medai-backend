@@ -84,6 +84,18 @@ export async function getAdherenceSummary(patientId, period = 'month') {
   return summaries;
 }
 
+export async function getTodayAdherence(patientId) {
+  const todayStart = startOfDay(new Date());
+  const todayEnd = endOfDay(new Date());
+
+  const logs = await DoseLog.find({
+    patientId: toObjectId(patientId),
+    scheduledTime: { $gte: todayStart, $lte: todayEnd },
+  }).lean();
+
+  return computeAdherenceRate(logs);
+}
+
 export async function getAdherenceHistory(
   callerId,
   callerRole,

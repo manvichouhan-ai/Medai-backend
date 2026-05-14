@@ -8,7 +8,7 @@ import DoseLog from '../../../models/DoseLog.model.js';
 import Alert from '../../../models/Alert.model.js';
 import Intervention from '../../../models/Intervention.model.js';
 import CaregiverPatient from '../../../models/CaregiverPatient.model.js';
-import { getAdherenceSummary, getAdherenceHistory } from '../../adherence/adherence.service.js';
+import { getAdherenceSummary, getAdherenceHistory, getTodayAdherence } from '../../adherence/adherence.service.js';
 import { getRiskScore } from '../ai/ai.service.js';
 import { generateInsight } from '../ai/ai.service.js';
 import { generateDoseLogs } from '../../medications/medication.service.js';
@@ -77,11 +77,12 @@ export async function getAssignedPatients(doctorId, filters = {}) {
       if (!patient) return null;
       const patientObjectId = toObjectId(patient._id);
 
-      const [adherence, activeMeds, pendingAlerts, riskData] = await Promise.all([
+      const [adherence, activeMeds, pendingAlerts, riskData, todayAdherence] = await Promise.all([
         getAdherenceSummary(patientObjectId),
         PatientMedication.countDocuments(getActiveMedicationQuery(patientObjectId)),
         Alert.countDocuments({ patientId: patientObjectId, status: 'active' }),
         getRiskScore(patientObjectId),
+        getTodayAdherence(patientObjectId),
       ]);
 
       const avgAdherence = getAverageAdherence(adherence);
@@ -90,6 +91,7 @@ export async function getAssignedPatients(doctorId, filters = {}) {
         patientId: patientObjectId,
         patient,
         adherenceScore: avgAdherence,
+        todayAdherence,
         activeMedications: activeMeds,
         latestRiskLevel: riskData.riskLevel || 'medium',
         pendingAlerts,

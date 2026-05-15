@@ -15,7 +15,7 @@ const alertSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['missed_dose', 'high_risk', 'delay', 'anomaly'],
+      enum: ['missed_dose', 'high_risk', 'delay', 'anomaly', 'sos_taken'],
       required: true,
     },
     severity: {

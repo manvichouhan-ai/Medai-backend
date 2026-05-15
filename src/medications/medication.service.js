@@ -6,7 +6,15 @@ import { logger } from '../utils/logger.js';
 
 const DAY_MAP = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
-export async function generateDoseLogs(medicationId, patientId, frequency, startDate, scheduleType, daysOfWeek, days = 30) {
+export async function generateDoseLogs(
+  medicationId,
+  patientId,
+  frequency,
+  startDate,
+  scheduleType,
+  daysOfWeek,
+  days = 30
+) {
   const start = typeof startDate === 'string' ? parseISO(startDate) : startDate;
   const logs = [];
 
@@ -64,7 +72,7 @@ export async function listMedications(patientId, role, isActive) {
     .lean();
 
   // Transform to frontend-compatible shape
-  const medications = patientMedications.map(pm => ({
+  const medications = patientMedications.map((pm) => ({
     id: pm._id.toString(),
     medicationId: pm.medicationId?._id?.toString() || pm.medicationId,
     patientId: pm.patientId._id?.toString() || pm.patientId,
@@ -83,6 +91,7 @@ export async function listMedications(patientId, role, isActive) {
     strength: pm.medicationId?.strength,
     form: pm.medicationId?.form,
     manufacturer: pm.medicationId?.manufacturer,
+    importance: pm.medicationId?.importance,
   }));
 
   return medications;
@@ -123,6 +132,7 @@ export async function getMedicationById(id, userId) {
     manufacturer: pm.medicationId?.manufacturer,
     description: pm.medicationId?.description,
     sideEffects: pm.medicationId?.sideEffects,
+    importance: pm.medicationId?.importance,
   };
 }
 

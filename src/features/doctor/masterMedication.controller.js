@@ -10,18 +10,33 @@ import { sendSuccess, sendError } from '../../utils/response.utils.js';
 
 export async function listMasterMedications(req, res) {
   try {
-    const { search, category, page, limit, sortBy, sortOrder } = req.query;
+    const { search, category, importance, page, limit, sortBy, sortOrder } = req.query;
     const doctorId = req.user.role === 'admin' ? null : req.user._id;
     
     const result = await getMasterMedications(doctorId, {
       search,
       category,
+      importance,
       page,
       limit,
       sortBy,
       sortOrder,
     });
     
+    return sendSuccess(res, result);
+  } catch (err) {
+    return sendError(res, err.message, err.statusCode || 500);
+  }
+}
+
+export async function listMedicationsByImportance(req, res) {
+  try {
+    const { level } = req.query;
+    if (!level) {
+      return sendError(res, 'Query param `level` is required (critical | important | routine)', 400);
+    }
+    const doctorId = req.user.role === 'admin' ? null : req.user._id;
+    const result = await getMedicationsByImportance(doctorId, level);
     return sendSuccess(res, result);
   } catch (err) {
     return sendError(res, err.message, err.statusCode || 500);

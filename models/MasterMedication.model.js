@@ -27,7 +27,24 @@ const masterMedicationSchema = new mongoose.Schema(
     form: {
       type: String,
       required: true,
-      enum: ['tablet', 'capsule', 'liquid', 'injection', 'inhaler', 'patch', 'cream', 'ointment', 'drops', 'spray'],
+      enum: [
+        'tablet',
+        'capsule',
+        'liquid',
+        'injection',
+        'inhaler',
+        'patch',
+        'cream',
+        'ointment',
+        'drops',
+        'spray',
+      ],
+    },
+    importance: {
+      type: String,
+      enum: ['critical', 'important', 'routine'],
+      default: 'routine',
+      index: true,
     },
     manufacturer: {
       type: String,
@@ -38,10 +55,12 @@ const masterMedicationSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-    sideEffects: [{
-      type: String,
-      trim: true,
-    }],
+    sideEffects: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
     createdByDoctor: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
@@ -60,7 +79,8 @@ const masterMedicationSchema = new mongoose.Schema(
 // Compound indexes for performance
 masterMedicationSchema.index({ name: 1, isActive: 1 });
 masterMedicationSchema.index({ category: 1, isActive: 1 });
-masterMedicationSchema.index({ createdByDoctor: 1, isActive: 1 });
+masterMedicationSchema.index({ importance: 1, isActive: 1 });
+masterMedicationSchema.index({ createdByDoctor: 1, importance: 1, isActive: 1 });
 masterMedicationSchema.index({ genericName: 1, isActive: 1 });
 
 // Text search index

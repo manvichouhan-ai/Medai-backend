@@ -13,6 +13,9 @@ import notificationRoutes from '../src/features/notifications/notification.route
 import aiRoutes from '../src/features/ai/ai.routes.js';
 import reportRoutes from '../src/features/reports/report.routes.js';
 import adminRoutes from '../src/admin/admin.routes.js';
+import sosRoutes from '../src/features/sos/sos.routes.js';
+import { verifyToken, requireRole } from '../middleware/auth.middleware.js';
+import { getPatientSOSLogs } from '../src/features/sos/sos.controller.js';
 
 const router = Router();
 
@@ -32,5 +35,7 @@ router.use('/notifications', notificationRoutes);
 router.use('/ai', aiRoutes);
 router.use('/reports', reportRoutes);
 router.use('/admin', adminRoutes);
+router.use('/sos-medications', sosRoutes);
+router.get('/patients/:patientId/sos-logs', verifyToken, requireRole('doctor', 'admin', 'caregiver'), getPatientSOSLogs);
 
 export default router;

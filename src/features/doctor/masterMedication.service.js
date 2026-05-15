@@ -8,17 +8,17 @@ export async function createMasterMedication(doctorId, data) {
       createdByDoctor: doctorId,
     });
 
-    logger.info('Master medication created', { 
-      medicationId: medication._id, 
+    logger.info('Master medication created', {
+      medicationId: medication._id,
       doctorId,
-      name: medication.name 
+      name: medication.name,
     });
 
     return medication;
   } catch (error) {
-    logger.error('Failed to create master medication', { 
-      error: error.message, 
-      doctorId 
+    logger.error('Failed to create master medication', {
+      error: error.message,
+      doctorId,
     });
     throw error;
   }
@@ -26,13 +26,14 @@ export async function createMasterMedication(doctorId, data) {
 
 export async function getMasterMedications(doctorId, filters = {}) {
   try {
-    const { 
-      search, 
-      category, 
-      page = 1, 
-      limit = 20, 
+    const {
+      search,
+      category,
+      importance,
+      page = 1,
+      limit = 20,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
     } = filters;
 
     const query = { isActive: true };
@@ -52,6 +53,10 @@ export async function getMasterMedications(doctorId, filters = {}) {
       query.category = category;
     }
 
+    if (importance) {
+      query.importance = importance;
+    }
+
     const skip = (page - 1) * limit;
 
     // Sort options
@@ -65,7 +70,7 @@ export async function getMasterMedications(doctorId, filters = {}) {
         .skip(skip)
         .limit(Number(limit))
         .lean(),
-      MasterMedication.countDocuments(query)
+      MasterMedication.countDocuments(query),
     ]);
 
     return {
@@ -76,9 +81,9 @@ export async function getMasterMedications(doctorId, filters = {}) {
       totalPages: Math.ceil(total / limit),
     };
   } catch (error) {
-    logger.error('Failed to get master medications', { 
-      error: error.message, 
-      doctorId 
+    logger.error('Failed to get master medications', {
+      error: error.message,
+      doctorId,
     });
     throw error;
   }
@@ -87,7 +92,7 @@ export async function getMasterMedications(doctorId, filters = {}) {
 export async function getMasterMedicationById(medicationId, doctorId) {
   try {
     const query = { _id: medicationId, isActive: true };
-    
+
     // If not admin, only allow access to own medications
     if (doctorId) {
       query.createdByDoctor = doctorId;
@@ -103,19 +108,41 @@ export async function getMasterMedicationById(medicationId, doctorId) {
 
     return medication;
   } catch (error) {
-    logger.error('Failed to get master medication by ID', { 
-      error: error.message, 
-      medicationId, 
-      doctorId 
+    logger.error('Failed to get master medication by ID', {
+      error: error.message,
+      medicationId,
+      doctorId,
     });
     throw error;
   }
 }
 
+/**
+ * Calculates weighted adherence score.
+ * @param {Array<{ taken: boolean, importance: string }>} doses
+ * @returns {{ score: number, totalWeight: number, takenWeight: number }}
+ */
+export function calculateWeightedAdherenceScore(doses) {
+  let totalWeight = 0;
+  let takenWeight = 0;
+
+  for (const dose of doses) {
+    const weight = getImportanceWeight(dose.importance);
+    totalWeight += weight;
+    if (dose.taken) {
+      takenWeight += weight;
+    }
+  }
+
+  const score = totalWeight > 0 ? Math.round((takenWeight / totalWeight) * 100) : 100;
+
+  return { score, totalWeight, takenWeight };
+}
+
 export async function updateMasterMedication(medicationId, doctorId, updates) {
   try {
     const query = { _id: medicationId, isActive: true };
-    
+
     // If not admin, only allow updates to own medications
     if (doctorId) {
       query.createdByDoctor = doctorId;
@@ -126,24 +153,23 @@ export async function updateMasterMedication(medicationId, doctorId, updates) {
       throw Object.assign(new Error('Medication not found or access denied'), { statusCode: 404 });
     }
 
-    const updated = await MasterMedication.findByIdAndUpdate(
-      medicationId,
-      updates,
-      { new: true, runValidators: true }
-    ).populate('createdByDoctor', 'fullName email');
+    const updated = await MasterMedication.findByIdAndUpdate(medicationId, updates, {
+      new: true,
+      runValidators: true,
+    }).populate('createdByDoctor', 'fullName email');
 
-    logger.info('Master medication updated', { 
-      medicationId, 
+    logger.info('Master medication updated', {
+      medicationId,
       doctorId,
-      updates: Object.keys(updates)
+      updates: Object.keys(updates),
     });
 
     return updated;
   } catch (error) {
-    logger.error('Failed to update master medication', { 
-      error: error.message, 
-      medicationId, 
-      doctorId 
+    logger.error('Failed to update master medication', {
+      error: error.message,
+      medicationId,
+      doctorId,
     });
     throw error;
   }
@@ -152,7 +178,7 @@ export async function updateMasterMedication(medicationId, doctorId, updates) {
 export async function deleteMasterMedication(medicationId, doctorId) {
   try {
     const query = { _id: medicationId, isActive: true };
-    
+
     // If not admin, only allow deletion of own medications
     if (doctorId) {
       query.createdByDoctor = doctorId;
@@ -167,18 +193,18 @@ export async function deleteMasterMedication(medicationId, doctorId) {
     medication.isActive = false;
     await medication.save();
 
-    logger.info('Master medication deleted', { 
-      medicationId, 
+    logger.info('Master medication deleted', {
+      medicationId,
       doctorId,
-      name: medication.name 
+      name: medication.name,
     });
 
     return medication;
   } catch (error) {
-    logger.error('Failed to delete master medication', { 
-      error: error.message, 
-      medicationId, 
-      doctorId 
+    logger.error('Failed to delete master medication', {
+      error: error.message,
+      medicationId,
+      doctorId,
     });
     throw error;
   }
@@ -194,17 +220,17 @@ export async function getMedicationCategories(doctorId) {
     const categories = await MasterMedication.aggregate([
       { $match: matchStage },
       { $group: { _id: '$category', count: { $sum: 1 } } },
-      { $sort: { _id: 1 } }
+      { $sort: { _id: 1 } },
     ]);
 
-    return categories.map(cat => ({
+    return categories.map((cat) => ({
       category: cat._id,
-      count: cat.count
+      count: cat.count,
     }));
   } catch (error) {
-    logger.error('Failed to get medication categories', { 
-      error: error.message, 
-      doctorId 
+    logger.error('Failed to get medication categories', {
+      error: error.message,
+      doctorId,
     });
     throw error;
   }
